@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family Docs</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #1c2330; }
+    main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 1.5rem; }
+    form, section { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input { width: 100%; padding: 10px; margin-top: 4px; box-sizing: border-box; font-size: 1rem; }
+    button { margin-top: 16px; padding: 10px 16px; font-size: 1rem; cursor: pointer; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .top button { margin-top: 0; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e6e8ec; }
+    .row small { color: #5b6573; display: block; }
+    .badge { padding: 2px 10px; border-radius: 99px; font-size: .85rem; white-space: nowrap; height: fit-content; }
+    .Expired  { background: #fde2e2; color: #9b1c1c; }
+    .Expiring { background: #fff0cc; color: #8a5a00; }
+    .Valid    { background: #dcf5e3; color: #14602b; }
+    #error { color: #9b1c1c; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Family Docs</h1>
+
+  <form id="loginForm">
+    <label for="email">Email</label>
+    <input id="email" type="email" required autocomplete="username">
+    <label for="password">Password</label>
+    <input id="password" type="password" required autocomplete="current-password">
+    <button type="submit">Log in</button>
+    <p id="error"></p>
+  </form>
+
+  <section id="app" hidden>
+    <div class="top">
+      <h2 id="familyName"></h2>
+      <button id="logout" type="button">Log out</button>
+    </div>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+  // 1. Which database to talk to (replace both values)
+  const SUPABASE_URL = 'https://avgchslnbrfdimitoglf.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_MDqYmMyEoaSFUVBPzRxGLw_P0i6pF5T';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const loginForm = document.getElementById('loginForm');
+  const app = document.getElementById('app');
+  const errorBox = document.getElementById('error');
+
+  // 2. When the form is submitted, log in
+  loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    errorBox.textContent = '';
+    const { error } = await db.auth.signInWithPassword({
+      email: document.getElementById('email').value,
+      password: document.getElementById('password').value
+    });
+    if (error) { errorBox.textContent = 'Login failed: ' + error.message; return; }
+    showApp();
+  });
+
+  // 3. Log out
+  document.getElementById('logout').addEventListener('click', async () => {
+    await db.auth.signOut();
+    showApp();
+  });
+
+  // 4. Show the login form or the documents, depending on who is logged in
+  async function showApp() {
+    const { data: { session } } = await db.auth.getSession();
+    loginForm.hidden = !!session;
+    app.hidden = !session;
+    if (!session) return;
+
+    const { data: family } = await db.from('families').select('name').single();
+    document.getElementById('familyName').textContent = family ? family.name : '';
+
+    const { data: docs, error } = await db
+      .from('documents_with_status')
+      .select('member_name, type_label, document_number, expiry_date, days_left, status')
+      .eq('is_current', true)
+      .order('days_left');
+
+    const list = document.getElementById('list');
+    list.replaceChildren();
+    if (error) { list.textContent = 'Could not load documents: ' + error.message; return; }
+
+    for (const d of docs) {
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const left = document.createElement('div');
+      left.textContent = d.member_name + ' · ' + d.type_label;
+      const small = document.createElement('small');
+      small.textContent = d.document_number + ' · expires ' + d.expiry_date;
+      left.appendChild(small);
+
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + d.status.split(' ')[0];
+      badge.textContent = d.days_left < 0
+        ? 'Expired ' + (-d.days_left) + ' days ago'
+        : d.days_left + ' days left';
+
+      row.append(left, badge);
+      list.appendChild(row);
+    }
+  }
+
+  showApp();
+</script>
+</body>
+</html>
